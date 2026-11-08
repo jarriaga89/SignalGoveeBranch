@@ -9,5 +9,6 @@ Install: Win+R → `signalrgb://addon/install?url=https://github.com/jarriaga89/
 Changes from upstream Development:
 - Add-on renamed to "Govee (Josh Custom)" so it doesn't clash with the official one.
 - H618A: plain strip with an adjustable "Segment Count" (default 10, range 1–60) instead of a fixed 10-LED subdevice.
+- H618A: Auto protocol now resolves to Dreamview (confirmed working on the strip).
 
 Uninstall the official Govee add-on first, or both will discover and fight over the same lights.

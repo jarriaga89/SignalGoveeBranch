@@ -1729,7 +1729,8 @@ const GoveeDeviceLibrary = {
 		sku: "H618A",
 		state: 1,
 		supportRazer: false,
-		supportDreamView: false,
+		// Custom build: Dreamview confirmed working on this strip, so Auto picks it.
+		supportDreamView: true,
 		// Custom build: one continuous strip with an adjustable segment count, instead of a
 		// 10-LED subdevice. Change "Segment Count" in the device settings if the effect is too coarse.
 		ledCount: 10,
