@@ -4,7 +4,7 @@ Personal fork of the SignalRGB Govee add-on, taken from the official **Developme
 (gitlab.com/signalrgb/govee). Lives in its own repo so SignalRGB's launch-time re-sync can't
 replace it with the official `main` branch.
 
-Install: Win+R → `signalrgb://addon/install?url=https://github.com/jarriaga89/signalrgb-govee-custom`
+Install: Win+R → `signalrgb://addon/install?url=https://github.com/jarriaga89/SignalGoveeBranch`
 
 Changes from upstream Development:
 - Add-on renamed to "Govee (Josh Custom)" so it doesn't clash with the official one.
