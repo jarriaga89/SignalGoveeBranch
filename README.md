@@ -10,6 +10,6 @@ Changes from upstream Development:
 - Add-on renamed to "Govee (Josh Custom)" so it doesn't clash with the official one.
 - H618A: plain strip with an adjustable "Segment Count" (default 10, range 1–60) instead of a fixed 10-LED subdevice.
 - H618A: Auto protocol now resolves to Dreamview (confirmed working on the strip).
-- H618A: Layout setting — Strip, Rectangle (one frame-shaped device) or 4 Strips (each side placed separately), with per-side segment counts, start corner and direction.
+- H618A: Layout setting — Strip, Rectangle (one frame-shaped device), 4 Strips (each side placed separately) or Individual Segments (every segment its own placeable piece), with per-side counts, start corner and direction. Capped at 15 segments, the most the H618A firmware accepts.
 
 Uninstall the official Govee add-on first, or both will discover and fight over the same lights.
