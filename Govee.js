@@ -1,6 +1,6 @@
 import udp from "@SignalRGB/udp";
 export function Name() { return "Govee (Josh Custom)"; }
-export function Version() { return "1.0.0-josh.1"; }
+export function Version() { return "1.0.0-josh.2"; }
 export function Type() { return "network"; }
 export function Publisher() { return "WhirlwindFX"; }
 export function Size() { return [22, 1]; }
@@ -19,6 +19,13 @@ TurnOffOnShutdown:readonly
 protocolSelect:readonly
 blendSegments:readonly
 variableLedCount:readonly
+shapeMode:readonly
+sideTop:readonly
+sideRight:readonly
+sideBottom:readonly
+sideLeft:readonly
+shapeStart:readonly
+shapeDirection:readonly
 streamKeepalive:readonly
 statusQuery:readonly
 */
@@ -340,6 +347,15 @@ function fetchDeviceInfoFromTableAndConfigure() {
 	// The library count is a best guess for devices sold in several lengths, so those expose it as
 	// a setting. This is the only way a user can correct a wrong count, which is why it has to be
 	// wired to something -- the flag sat declared and unread while components were the only path.
+	// Custom build: devices flagged customShapes can be laid out as a strip, a rectangle, or four
+	// separate strips, all driven from the same wire order.
+	if(GoveeDeviceInfo.customShapes){
+		AddShapeProperties(GoveeDeviceInfo);
+		BuildShape();
+
+		return;
+	}
+
 	if(GoveeDeviceInfo.hasVariableLedCount){
 		device.addProperty({property: "variableLedCount", group: "settings", label: "Segment Count", description: "How many segments this device has. The library ships a default per SKU, but these are sold in several lengths, so correct it here if the effect does not reach the end of the device.", type: "number", min: 1, max: 60, default: GoveeDeviceInfo.ledCount, step: 1});
 		SetLedCount(variableLedCount);
@@ -364,8 +380,161 @@ function fetchDeviceInfoFromTableAndConfigure() {
 
 /** Called by the host when the user changes the Segment Count setting on a device that has one. */
 export function onvariableLedCountChanged(){
+	if(shapeDeviceActive){
+		BuildShape();
+
+		return;
+	}
+
 	SetLedCount(variableLedCount);
 }
+
+// ------------------------------------------<( Custom shapes )>------------------------------------------------
+// Custom build. The strip takes one ordered list of colours over Dreamview, so every shape here is
+// just a different way of placing that same list on the canvas. Wire order always runs from the
+// Start Corner around the frame in the chosen Direction.
+
+/** Set once a customShapes device has been configured, so the change handlers know to rebuild. */
+let shapeDeviceActive = false;
+
+function AddShapeProperties(GoveeDeviceInfo){
+	const side = (property, label, value) => ({property, group: "settings", label, description: "Segments on this side. Used by the Rectangle and 4 Strips layouts.", type: "number", min: 1, max: 30, default: value, step: 1});
+
+	device.addProperty({property: "shapeMode", group: "settings", label: "Layout", description: "Strip: one straight run using Segment Count. Rectangle: one frame-shaped device. 4 Strips: each side becomes its own piece you can place on the canvas.", type: "combobox", values: ["Strip", "Rectangle", "4 Strips"], default: "Rectangle"});
+	device.addProperty({property: "variableLedCount", group: "settings", label: "Segment Count", description: "Segments for the Strip layout. The Rectangle and 4 Strips layouts use the per-side counts instead.", type: "number", min: 1, max: 60, default: GoveeDeviceInfo.ledCount, step: 1});
+	device.addProperty(side("sideTop", "Top Segments", 3));
+	device.addProperty(side("sideRight", "Right Segments", 2));
+	device.addProperty(side("sideBottom", "Bottom Segments", 3));
+	device.addProperty(side("sideLeft", "Left Segments", 2));
+	device.addProperty({property: "shapeStart", group: "settings", label: "Start Corner", description: "The corner where the strip's power/controller end sits.", type: "combobox", values: ["Top Left", "Top Right", "Bottom Right", "Bottom Left"], default: "Bottom Left"});
+	device.addProperty({property: "shapeDirection", group: "settings", label: "Direction", description: "Which way the strip runs from the Start Corner, as seen from the front.", type: "combobox", values: ["Clockwise", "Counter-clockwise"], default: "Clockwise"});
+}
+
+/** The four sides in wire order. Each entry says which side it is and whether it runs forward
+ * (left-to-right / top-to-bottom) or backward along that side. */
+function ShapeSideOrder(){
+	const clockwise = shapeDirection !== "Counter-clockwise";
+	// Going clockwise from the top-left corner: top L->R, right T->B, bottom R->L, left B->T.
+	const cw = [["Top", true], ["Right", true], ["Bottom", false], ["Left", false]];
+	// Going counter-clockwise from the top-left corner: left T->B, bottom L->R, right B->T, top R->L.
+	const ccw = [["Left", true], ["Bottom", true], ["Right", false], ["Top", false]];
+	const startIndex = clockwise
+		? {"Top Left": 0, "Top Right": 1, "Bottom Right": 2, "Bottom Left": 3}[shapeStart] ?? 0
+		: {"Top Left": 0, "Bottom Left": 1, "Bottom Right": 2, "Top Right": 3}[shapeStart] ?? 0;
+	const order = clockwise ? cw : ccw;
+
+	return order.slice(startIndex).concat(order.slice(0, startIndex));
+}
+
+function SideCount(name){
+	const value = {Top: sideTop, Right: sideRight, Bottom: sideBottom, Left: sideLeft}[name];
+
+	return Math.max(1, Math.min(30, Math.round(Number(value) || 1)));
+}
+
+/** Spreads n points evenly over span cells, returned in forward order. */
+function SpreadPoints(n, span){
+	if(n === 1){
+		return [Math.floor((span - 1) / 2)];
+	}
+
+	const points = [];
+
+	for(let i = 0; i < n; i++){
+		points.push(Math.round(i * (span - 1) / (n - 1)));
+	}
+
+	return points;
+}
+
+function BuildShape(){
+	shapeDeviceActive = true;
+	ClearSubdevices();
+
+	if(shapeMode === "Strip"){
+		device.SetIsSubdeviceController(false);
+		SetLedCount(Math.max(1, Math.min(60, Math.round(Number(variableLedCount) || 10))));
+
+		return;
+	}
+
+	if(shapeMode === "4 Strips"){
+		BuildFourStrips();
+
+		return;
+	}
+
+	BuildRectangle();
+}
+
+function BuildRectangle(){
+	device.SetIsSubdeviceController(false);
+
+	const width = Math.max(SideCount("Top"), SideCount("Bottom"));
+	const height = Math.max(SideCount("Left"), SideCount("Right"));
+	// Top and bottom rows sit at y 0 and height+1; the side columns at x 0 and width+1, so the
+	// four sides never share a cell.
+	const names = [];
+	const positions = [];
+
+	for(const [side, forward] of ShapeSideOrder()){
+		const horizontal = side === "Top" || side === "Bottom";
+		const points = SpreadPoints(SideCount(side), horizontal ? width : height);
+
+		if(!forward){
+			points.reverse();
+		}
+
+		points.forEach((point, i) => {
+			names.push(`${side} ${i + 1}`);
+
+			if(side === "Top"){ positions.push([point + 1, 0]); }
+			if(side === "Bottom"){ positions.push([point + 1, height + 1]); }
+			if(side === "Left"){ positions.push([0, point + 1]); }
+			if(side === "Right"){ positions.push([width + 1, point + 1]); }
+		});
+	}
+
+	ledCount = positions.length;
+	ledNames = names;
+	ledPositions = positions;
+	device.setSize([width + 2, height + 2]);
+	device.setControllableLeds(ledNames, ledPositions);
+	device.log(`Custom layout: Rectangle, ${ledCount} segments, starting ${shapeStart} ${shapeDirection}.`);
+}
+
+function BuildFourStrips(){
+	device.SetIsSubdeviceController(true);
+
+	for(const [side, forward] of ShapeSideOrder()){
+		const count = SideCount(side);
+		const horizontal = side === "Top" || side === "Bottom";
+		const indices = [...Array(count).keys()];
+
+		if(!forward){
+			indices.reverse();
+		}
+
+		CreateSubDevice({
+			name: `${side} Strip`,
+			ledCount: count,
+			size: horizontal ? [count, 1] : [1, count],
+			ledNames: indices.map((_, i) => `${side} ${i + 1}`),
+			// Positions in wire order, so each piece reads the right way round on the canvas.
+			ledPositions: indices.map((index) => horizontal ? [index, 0] : [0, index]),
+		});
+	}
+
+	device.log(`Custom layout: 4 Strips, starting ${shapeStart} ${shapeDirection}.`);
+}
+
+export function onshapeModeChanged(){ BuildShape(); }
+export function onsideTopChanged(){ BuildShape(); }
+export function onsideRightChanged(){ BuildShape(); }
+export function onsideBottomChanged(){ BuildShape(); }
+export function onsideLeftChanged(){ BuildShape(); }
+export function onshapeStartChanged(){ BuildShape(); }
+export function onshapeDirectionChanged(){ BuildShape(); }
 
 function GetAutoProtocol(GoveeDeviceInfo){
 	if(GoveeDeviceInfo.supportDreamView){
@@ -1735,6 +1904,7 @@ const GoveeDeviceLibrary = {
 		// 10-LED subdevice. Change "Segment Count" in the device settings if the effect is too coarse.
 		ledCount: 10,
 		hasVariableLedCount: true,
+		customShapes: true,
 	},
 	H618C: {
 		name: "10m RGBIC Basic Strip Light",
